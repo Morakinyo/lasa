@@ -1,1 +1,7 @@
 *.py
+!code_ref.py
+*.xlsx
+!cleanedimage.xlsx
+!Medical Device_Kunle.xlsx
+*.ipynb
+

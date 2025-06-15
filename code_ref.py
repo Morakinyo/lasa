@@ -62,8 +62,7 @@ def process_chunk(df, cfg, start, end, success_counter):
 
         for url_col, local_path_col in cfg["url_columns"].items():
             url = row[url_col]
-            suffix = "front" if "Front" in url_col else "whole"
-            filename = f"{nafdac_val}_{suffix}.jpeg"
+            filename = f"{nafdac_val}.jpeg"
             file_path = os.path.join(cfg["output_dir"], filename)
 
             if pd.isna(url):
@@ -81,11 +80,19 @@ def process_chunk(df, cfg, start, end, success_counter):
 
 def save_with_hyperlinks(df, cfg):
     df_for_excel = df.copy()
+
+    # Make NAFDACNumber a clickable hyperlink
+    df_for_excel["NAFDACNumber"] = df_for_excel["NAFDACNumber"].apply(
+        lambda x: f'=HYPERLINK("{os.path.join(cfg["output_dir"], f"{x}.jpeg")}", "{x}.jpeg")'
+        if pd.notna(x) else x
+    )
+
+    # Optional: clear local_path columns or leave them untouched
     for col in cfg["url_columns"].values():
-        df_for_excel[col] = df_for_excel[col].apply(
-            lambda x: f'=HYPERLINK("{os.path.join(cfg["output_dir"], x)}", "{x}")' if x not in ["", "DOWNLOAD_FAILED"] else x
-        )
+        df_for_excel[col] = ""  # or keep as is if you want to retain metadata
+
     df_for_excel.to_excel(cfg["output_excel"], index=False)
+
 
 # === MAIN FUNCTION ===
 def main(cfg):
