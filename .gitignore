@@ -1,7 +1,11 @@
 *.py
-!code_ref.py
+!clean_image_downloader.py
 *.xlsx
-!cleanedimage.xlsx
+!data_updated.xlsx
+!manualinspection.xlsx
 !Medical Device_Kunle.xlsx
+!cleanedMedical Devices.xlsx
 *.ipynb
+*.csv
+*.pdf
 

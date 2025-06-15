@@ -4,9 +4,8 @@ import time
 import pandas as pd
 import requests
 from openpyxl import load_workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
-from openpyxl.styles import Font
-from openpyxl.worksheet.hyperlink import Hyperlink
+from pdf2image import convert_from_path
+from io import BytesIO
 
 # === CONFIGURATION ===
 CONFIG = {
@@ -48,8 +47,18 @@ def download_image(url, filename, timeout):
     try:
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
-        with open(filename, "wb") as f:
-            f.write(response.content)
+
+        if url.lower().endswith(".pdf"):
+            with open("temp.pdf", "wb") as temp_pdf:
+                temp_pdf.write(response.content)
+            images = convert_from_path("temp.pdf")
+            if images:
+                images[0].save(filename, 'JPEG')
+            else:
+                raise ValueError("No images found in PDF")
+        else:
+            with open(filename, "wb") as f:
+                f.write(response.content)
         return filename, True
     except Exception as e:
         print(f"Failed to download {url}: {e}")
@@ -60,39 +69,52 @@ def process_chunk(df, cfg, start, end, success_counter):
         row = df.iloc[idx]
         nafdac_val = clean_filename(row[cfg["col1"]])
 
+        all_failed = True
+        downloaded_status = []
+
         for url_col, local_path_col in cfg["url_columns"].items():
             url = row[url_col]
-            filename = f"{nafdac_val}.jpeg"
+            tag = "front" if "Front" in url_col else "whole"
+            filename = f"{nafdac_val}_{tag}.jpeg"
             file_path = os.path.join(cfg["output_dir"], filename)
 
             if pd.isna(url):
                 continue
 
             if os.path.exists(file_path):
-                df.at[idx, local_path_col] = filename
+                df.at[idx, local_path_col] = f'=HYPERLINK("{file_path}", "{nafdac_val}_{tag}.jpeg")'
+                all_failed = False
+                downloaded_status.append(True)
                 continue
 
             print(f"Downloading: {url}")
-            result_path, success = download_image(url, file_path, cfg["timeout"])
-            df.at[idx, local_path_col] = os.path.basename(result_path) if success else result_path
+            _, success = download_image(url, file_path, cfg["timeout"])
             if success:
+                df.at[idx, local_path_col] = f'=HYPERLINK("{file_path}", "{nafdac_val}_{tag}.jpeg")'
                 success_counter["count"] += 1
+                all_failed = False
+                downloaded_status.append(True)
+            else:
+                df.at[idx, local_path_col] = "DOWNLOAD_FAILED"
+                downloaded_status.append(False)
 
-def save_with_hyperlinks(df, cfg):
-    df_for_excel = df.copy()
+        if any(downloaded_status):
+            full_image_path = os.path.join(cfg["output_dir"], f"{nafdac_val}.jpeg")
+            df.at[idx, "Status"] = f'=HYPERLINK("{full_image_path}", "{nafdac_val}.jpeg")'
+        else:
+            df.at[idx, "Status"] = "Download Failed"
 
-    # Make NAFDACNumber a clickable hyperlink
-    df_for_excel["NAFDACNumber"] = df_for_excel["NAFDACNumber"].apply(
-        lambda x: f'=HYPERLINK("{os.path.join(cfg["output_dir"], f"{x}.jpeg")}", "{x}.jpeg")'
-        if pd.notna(x) else x
-    )
+def save_with_local_paths(df, cfg):
+    df.to_excel(cfg["output_excel"], index=False)
 
-    # Optional: clear local_path columns or leave them untouched
-    for col in cfg["url_columns"].values():
-        df_for_excel[col] = ""  # or keep as is if you want to retain metadata
-
-    df_for_excel.to_excel(cfg["output_excel"], index=False)
-
+def extract_nafdac_from_filenames(folder_path):
+    pattern = re.compile(r"(\d{8}-\d{4})")
+    nafdac_list = []
+    for filename in os.listdir(folder_path):
+        match = pattern.search(filename)
+        if match:
+            nafdac_list.append(match.group(1))
+    return nafdac_list
 
 # === MAIN FUNCTION ===
 def main(cfg):
@@ -106,10 +128,6 @@ def main(cfg):
         if col not in df.columns:
             raise ValueError(f"Missing required column: {col}")
 
-    for local_path_col in cfg["url_columns"].values():
-        if local_path_col not in df.columns:
-            df[local_path_col] = ""
-
     total_rows = len(df)
     success_counter = {"count": 0}
 
@@ -119,7 +137,11 @@ def main(cfg):
         process_chunk(df, cfg, start, end, success_counter)
         time.sleep(1)
 
-    save_with_hyperlinks(df, cfg)
+    save_with_local_paths(df, cfg)
+
+    extracted_nafdac = extract_nafdac_from_filenames(cfg["output_dir"])
+    print("\n🔍 Extracted NAFDACNumbers from filenames:")
+    print(extracted_nafdac)
 
     print(f"\n✅ Done. Updated Excel saved to: {cfg['output_excel']}")
     print(f"\n📥 Successfully downloaded {success_counter['count']} files.")
