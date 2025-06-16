@@ -9,7 +9,7 @@ from pdf2image import convert_from_path
 CONFIG = {
     "excel_path": "Medical Devices_Kunle.xlsx",
     "output_excel": "data_updated.xlsx",
-    "merged_output_excel": "merged_output_with_hyperlinks.xlsx",
+    "merged_output_excel": "cleanedMedical Devices.xlsx",
     "clean_image_excel": "cleanimage.xlsx",
     "output_dir": "downloaded_images",
     "url_columns": {
@@ -38,6 +38,7 @@ def clean_dataframe(df, cfg):
     df = df.dropna(subset=cfg["required_non_null_columns"])
     if "ProductBrandName" in df.columns:
         df["ProductBrandName"] = df["ProductBrandName"].str.title()
+    df = df.drop_duplicates(subset="NAFDACNumber")
     return df
 
 def clean_filename(s):
@@ -159,7 +160,9 @@ def main(cfg):
     download_df = pd.read_excel(cfg["output_excel"], dtype=str)
     filename_df = pd.read_excel(cfg["clean_image_excel"], dtype=str)
     filename_df["NAFDACNumber"] = filename_df["filename"].str.extract(r"([A-Z0-9]+-\d+)", expand=False)
+    filename_df = filename_df.drop_duplicates(subset="NAFDACNumber")
     merged_df = pd.merge(download_df, filename_df[["NAFDACNumber"]], on="NAFDACNumber", how="inner")
+    merged_df = merged_df.drop_duplicates(subset="NAFDACNumber")
 
     # Rebuild hyperlinks
     merged_df = rebuild_hyperlinks(merged_df, cfg["output_dir"])
